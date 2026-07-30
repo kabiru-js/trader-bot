@@ -1,0 +1,27 @@
+{
+  "name": "trader-bot",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Multi-user demo trading platform with automated bot",
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "start": "node scripts/bot-runner.js & next start --port 3001",
+    "bot": "node scripts/bot-runner.js"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.111.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.4",
+    "next": "^16.2.12",
+    "postcss": "^8.5.25",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.8.3"
+  }
+}
