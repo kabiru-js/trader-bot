@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,
   wallet_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+  total_deposits NUMERIC(14, 2) NOT NULL DEFAULT 0,
+  initial_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -22,6 +24,10 @@ CREATE TABLE IF NOT EXISTS trades (
   position_size NUMERIC(18, 8) NOT NULL,
   pnl NUMERIC(14, 2),
   status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
+  strategy TEXT,
+  entry_reason TEXT,
+  exit_reason TEXT,
+  confidence NUMERIC(5, 2),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   closed_at TIMESTAMPTZ
 );
@@ -87,8 +93,8 @@ CREATE POLICY price_feed_select ON price_feed FOR SELECT USING (true);
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.users (id, email, wallet_balance)
-  VALUES (NEW.id, NEW.email, 0);
+  INSERT INTO public.users (id, email, wallet_balance, total_deposits, initial_balance)
+  VALUES (NEW.id, NEW.email, 0, 0, 0);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

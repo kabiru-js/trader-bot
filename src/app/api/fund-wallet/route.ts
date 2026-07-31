@@ -17,17 +17,30 @@ export async function POST() {
     .eq("id", user.id)
     .single();
 
-  const currentBalance = userData?.wallet_balance ?? 0;
-  const newBalance = currentBalance + 1000;
+  const AMOUNT = 1000;
+  const currentBalance = parseFloat(userData?.wallet_balance ?? 0);
+  const currentDeposits = parseFloat(userData?.total_deposits ?? 0);
+  const newBalance = currentBalance + AMOUNT;
+  const newDeposits = currentDeposits + AMOUNT;
+  const initialBalance =
+    currentDeposits === 0 ? AMOUNT : parseFloat(userData?.initial_balance ?? 0);
 
   const { error } = await supabase
     .from("users")
-    .update({ wallet_balance: newBalance })
+    .update({
+      wallet_balance: newBalance,
+      total_deposits: newDeposits,
+      initial_balance: initialBalance,
+    })
     .eq("id", user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ wallet_balance: newBalance });
+  return NextResponse.json({
+    wallet_balance: newBalance,
+    total_deposits: newDeposits,
+    initial_balance: initialBalance,
+  });
 }

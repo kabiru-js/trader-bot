@@ -68,7 +68,7 @@ async function getAllUsers() {
   return await supFetch('GET', 'users?select=id,wallet_balance');
 }
 
-async function createUserTrade(userId, side, price, positionSize) {
+async function createUserTrade(userId, side, price, positionSize, signals) {
   await supFetch('POST', 'trades', {
     user_id: userId,
     symbol: 'BTCUSDT',
@@ -78,16 +78,21 @@ async function createUserTrade(userId, side, price, positionSize) {
     position_size: positionSize,
     pnl: null,
     status: 'OPEN',
+    strategy: signals?.strategy ?? null,
+    entry_reason: signals?.entry_reason ?? null,
+    exit_reason: null,
+    confidence: signals?.confidence ?? null,
     created_at: new Date().toISOString(),
     closed_at: null
   });
 }
 
-async function closeUserTrade(tradeId, exitPrice, pnl) {
+async function closeUserTrade(tradeId, exitPrice, pnl, exitReason) {
   await supFetch('PATCH', `trades?id=eq.${tradeId}`, {
     exit_price: exitPrice,
     pnl: pnl,
     status: 'CLOSED',
+    exit_reason: exitReason ?? null,
     closed_at: new Date().toISOString()
   });
 }
@@ -164,6 +169,24 @@ async function updatePriceFeed(price) {
 
 // ─── Bot Strategy ────────────────────────────────────────────────────────────
 
+const ACTIVE_STRATEGY = 'BTC Pullback Mean Reversion';
+
+function entrySignal(dropPct, localHigh, currentPrice) {
+  const confidence = Math.round(Math.min(85, Math.max(50, 55 + dropPct * 25)) * 100) / 100;
+  return {
+    strategy: ACTIVE_STRATEGY,
+    entry_reason: `BTC dropped ${dropPct.toFixed(2)}% from 20-tick high of $${localHigh.toFixed(2)}. Buying the pullback within the trend for mean reversion.`,
+    confidence
+  };
+}
+
+function exitSignal(changePct, entryPrice, currentPrice) {
+  const isProfit = changePct >= 0;
+  return isProfit
+    ? `BTC gained +${changePct.toFixed(2)}% from entry $${entryPrice.toFixed(2)}. Profit target reached, taking profit.`
+    : `BTC fell ${changePct.toFixed(2)}% from entry $${entryPrice.toFixed(2)}. Stop loss triggered to limit downside risk.`;
+}
+
 async function runBot() {
   if (!latestPrice) return;
 
@@ -181,12 +204,14 @@ async function runBot() {
       if (changePct >= 1.0 || changePct <= -0.5) {
         console.log(`[Bot] CLOSING trade. Entry: $${entryPrice}, Exit: $${currentPrice}, Change: ${changePct.toFixed(2)}%`);
 
+        const exitReason = exitSignal(changePct, entryPrice, currentPrice);
+
         // Get all open trades (all users)
         const openTrades = await getOpenTrades();
         if (openTrades) {
           for (const trade of openTrades) {
             const pnl = parseFloat(trade.position_size) * (currentPrice - entryPrice);
-            await closeUserTrade(trade.id, currentPrice, pnl);
+            await closeUserTrade(trade.id, currentPrice, pnl, exitReason);
 
             // Update user balance
             const { data: userData } = await supFetch('GET', `users?id=eq.${trade.user_id}&select=wallet_balance`);
@@ -218,6 +243,8 @@ async function runBot() {
       if (dropPct >= 0.3) {
         console.log(`[Bot] BUY signal at $${currentPrice} (drop: ${dropPct.toFixed(2)}% from high $${localHigh})`);
 
+        const signals = entrySignal(dropPct, localHigh, currentPrice);
+
         // Get all users with balance
         const users = await getAllUsers();
         if (!users || users.length === 0) {
@@ -234,7 +261,7 @@ async function runBot() {
           if (userBalance <= 0) continue; // Skip users with no funds
 
           const positionSize = (userBalance * 0.5) / entryPrice;
-          await createUserTrade(user.id, 'BUY', entryPrice, positionSize);
+          await createUserTrade(user.id, 'BUY', entryPrice, positionSize, signals);
         }
 
         // Update global state
@@ -253,12 +280,35 @@ async function runBot() {
   }
 }
 
+// ─── Schema check ────────────────────────────────────────────────────────────
+
+async function checkSchema() {
+  console.log('[Bot] Verifying database schema...');
+  const [tradesOk, usersOk] = await Promise.all([
+    supFetch('GET', 'trades?select=strategy&limit=1'),
+    supFetch('GET', 'users?select=total_deposits&limit=1')
+  ]);
+  if (!tradesOk || !usersOk) {
+    console.error('[Bot] ERROR: Database schema is missing required columns.');
+    console.error('');
+    console.error('Run these two migrations in the Supabase SQL Editor, then restart this bot:');
+    console.error('  1. scripts/migration-add-deposits.sql');
+    console.error('  2. scripts/migration-add-trade-signals.sql');
+    console.error('');
+    process.exit(1);
+  }
+  console.log('[Bot] Schema OK');
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-console.log('[Bot] Starting...');
-connectBinance();
-setInterval(runBot, BOT_INTERVAL);
-console.log(`[Bot] Running with ${BOT_INTERVAL}ms interval`);
+(async () => {
+  await checkSchema();
+  console.log('[Bot] Starting...');
+  connectBinance();
+  setInterval(runBot, BOT_INTERVAL);
+  console.log(`[Bot] Running with ${BOT_INTERVAL}ms interval`);
+})();
 
 // Keep alive
 process.on('SIGINT', () => {
